@@ -124,39 +124,44 @@ public class HttpRequestHandler implements Runnable {
         }
 
         if (contentType == null || !contentType.startsWith("multipart/form-data")) {
-            sendResponse(outputStream, 415, "Unsupported Media Type", "Content type must be multipart/form-data");
-            return;
-        }
+            byte[] body = inputStream.readNBytes(contentLength);
 
-        // Extract boundary
-        String boundary = extractBoundary(contentType);
-        if (boundary == null) {
-            sendResponse(outputStream, 400, "Bad Request", "Boundary missing in multipart/form-data");
-            return;
-        }
-
-        // Read the body
-        byte[] body = inputStream.readNBytes(contentLength);
-
-        // Extract file details
-        String bodyString = new String(body);
-        String fileName = extractFileName(body, boundary);
-        byte[] fileData = extractFileData(body, boundary, contentLength);
-
-        if (fileData != null && fileName != null) {
-            File uploadDir = new File(rootDirectory, "uploads");
-            if (!uploadDir.exists()) {
-                uploadDir.mkdirs();
+            File file = new File(rootDirectory, path+"/requests.txt");
+            try (FileOutputStream fos = new FileOutputStream(file, true)) {
+                fos.write(body);
+                fos.write("\n\n".getBytes()); // Add a newline to separate requests
             }
 
-            File file = new File(uploadDir, fileName);
-            try (FileOutputStream fos = new FileOutputStream(file)) {
-                fos.write(fileData);
-            }
-
-            sendResponse(outputStream, 200, "OK", "File uploaded successfully.");
+            sendResponse(outputStream, 200, "OK", "Request body saved to file.");
         } else {
-            sendResponse(outputStream, 400, "Bad Request", "No file data found in the request.");
+            String boundary = extractBoundary(contentType);
+            if (boundary == null) {
+                sendResponse(outputStream, 400, "Bad Request", "Boundary missing in multipart/form-data");
+                return;
+            }
+
+            // Read the body
+            byte[] body = inputStream.readNBytes(contentLength);
+
+            // Extract file details
+            String fileName = extractFileName(body, boundary);
+            byte[] fileData = extractFileData(body, boundary, contentLength);
+
+            if (fileData != null && fileName != null) {
+                File uploadDir = new File(rootDirectory, path);
+                if (!uploadDir.exists()) {
+                    uploadDir.mkdirs();
+                }
+
+                File file = new File(uploadDir, fileName);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(fileData);
+                }
+
+                sendResponse(outputStream, 200, "OK", "File uploaded successfully.");
+            } else {
+                sendResponse(outputStream, 400, "Bad Request", "No file data found in the request.");
+            }
         }
     }
 
@@ -207,13 +212,15 @@ public class HttpRequestHandler implements Runnable {
 
     private String extractFileName(byte[] body, String boundary) {
         String bodyString = new String(body);
-        Pattern pattern = Pattern.compile("Content-Disposition: form-data; name=\"file\"; filename=\"([^\"]+)\"");
+        // Updated pattern to match any name attribute
+        Pattern pattern = Pattern.compile("Content-Disposition: form-data; name=\"([^\"]+)\"; filename=\"([^\"]+)\"");
         Matcher matcher = pattern.matcher(bodyString);
         if (matcher.find()) {
-            return matcher.group(1);
+            return matcher.group(2);  // The filename is captured in group 2
         }
         return null;
     }
+
 
     private byte[] extractFileData(byte[] body, String boundary, int contentLength) {
         String boundaryMarker = "--" + boundary;
