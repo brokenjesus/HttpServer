@@ -1,30 +1,87 @@
 package by.lupach.httpclient.core;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
+import java.nio.file.Files;
 
 public class HttpRequest {
     private final String host;
     private final int port;
-    private final String requestString;
+    private final byte[] requestBytes;
+    private final byte[] bodyBytes;
 
-    private HttpRequest(String host, int port, String requestString) {
+    private HttpRequest(String host, int port, byte[] requestBytes, byte[] bodyBytes) {
         this.host = host;
         this.port = port;
-        this.requestString = requestString;
+        this.requestBytes = requestBytes;
+        this.bodyBytes = bodyBytes;
     }
 
-    public static HttpRequest fromParameters(String url, String method, String headers, String body) {
-        // Парсинг URL
+    public static HttpRequest fromParameters(String url, String method, String headers, String body) throws IOException {
+        if (url == null || url.isEmpty()) {
+            throw new IllegalArgumentException("URL is required");
+        }
+
         String host;
         int port;
         String path = "/";
+
+        // Parse URL
         if (url.startsWith("http://")) {
             url = url.substring(7);
         }
         int colonIndex = url.indexOf(":");
         int slashIndex = url.indexOf("/");
+
+        if (colonIndex != -1) {
+            host = url.substring(0, colonIndex);
+            port = Integer.parseInt(url.substring(colonIndex + 1, slashIndex != -1 ? slashIndex : url.length()));
+        } else {
+            host = url.substring(0, slashIndex != -1 ? slashIndex : url.length());
+            port = 80; // Default HTTP port
+        }
+
+        if (slashIndex != -1) {
+            path = url.substring(slashIndex);
+        }
+
+        // Forming the request headers as byte array
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byteArrayOutputStream.write((method + " " + path + " HTTP/1.1\r\n").getBytes());
+        byteArrayOutputStream.write(("Host: " + host + "\r\n").getBytes());
+        if (headers != null) {
+            byteArrayOutputStream.write((headers + "\r\n").getBytes());
+        }
+        byteArrayOutputStream.write("Connection: close\r\n".getBytes());
+        if (body != null) {
+            byteArrayOutputStream.write(("Content-Length: " + body.length() + "\r\n").getBytes());
+            byteArrayOutputStream.write("\r\n".getBytes());
+            byteArrayOutputStream.write(body.getBytes());
+        } else {
+            byteArrayOutputStream.write("\r\n".getBytes());
+        }
+
+        byte[] requestBytes = byteArrayOutputStream.toByteArray();
+        byte[] bodyBytes = body != null ? body.getBytes() : null;
+
+        return new HttpRequest(host, port, requestBytes, bodyBytes);
+    }
+
+    public static HttpRequest fileUpload(String url, String filePath, String method) throws IOException {
+        if (url == null || url.isEmpty()) {
+            throw new IllegalArgumentException("URL is required");
+        }
+
+        String host;
+        int port;
+        String path = "/";
+
+        // Parse URL
+        if (url.startsWith("http://")) {
+            url = url.substring(7);
+        }
+        int colonIndex = url.indexOf(":");
+        int slashIndex = url.indexOf("/");
+
         if (colonIndex != -1) {
             host = url.substring(0, colonIndex);
             port = Integer.parseInt(url.substring(colonIndex + 1, slashIndex != -1 ? slashIndex : url.length()));
@@ -32,52 +89,62 @@ public class HttpRequest {
             host = url.substring(0, slashIndex != -1 ? slashIndex : url.length());
             port = 80;
         }
+
         if (slashIndex != -1) {
             path = url.substring(slashIndex);
         }
 
-        // Формирование запроса
-        StringBuilder request = new StringBuilder();
-        request.append(method).append(" ").append(path).append(" HTTP/1.1\r\n");
-        request.append("Host: ").append(host).append("\r\n");
-        if (headers != null) {
-            request.append(headers).append("\r\n");
-        }
-        request.append("Connection: close\r\n");
-        if (body != null) {
-            request.append("Content-Length: ").append(body.length()).append("\r\n");
-            request.append("\r\n").append(body);
-        } else {
-            request.append("\r\n");
-        }
+        // Read file content as bytes
+        File file = new File(filePath);
+        byte[] fileContent = Files.readAllBytes(file.toPath());
 
-        return new HttpRequest(host, port, request.toString());
+        // Build multipart/form-data body
+        String boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byteArrayOutputStream.write(("--" + boundary + "\r\n").getBytes());
+        byteArrayOutputStream.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + file.getName() + "\"\r\n").getBytes());
+        byteArrayOutputStream.write(("Content-Type: " + Files.probeContentType(file.toPath()) + "\r\n\r\n").getBytes());
+
+        // Write file content
+        byteArrayOutputStream.write(fileContent);
+        byteArrayOutputStream.write(("\r\n--" + boundary + "--\r\n").getBytes());
+
+        byte[] finalBody = byteArrayOutputStream.toByteArray();
+
+        // Prepare request headers
+        ByteArrayOutputStream requestStream = new ByteArrayOutputStream();
+        requestStream.write((method + " " + path + " HTTP/1.1\r\n").getBytes());
+        requestStream.write(("Host: " + host + "\r\n").getBytes());
+        requestStream.write(("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n").getBytes());
+        requestStream.write(("Content-Length: " + finalBody.length + "\r\n").getBytes());
+        requestStream.write("Connection: close\r\n".getBytes());
+        requestStream.write("\r\n".getBytes());
+
+        byte[] requestBytes = requestStream.toByteArray();
+
+        return new HttpRequest(host, port, requestBytes, finalBody);
     }
+
     public static HttpRequest fromTemplate(String templatePath) throws IOException {
-        try (BufferedReader br = new BufferedReader(new FileReader(templatePath))) {
-            StringBuilder request = new StringBuilder();
+        // Read template file (assuming it exists in resources folder)
+        File templateFile = new File(templatePath);
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(templateFile))) {
             String line;
-            String host = "localhost";
-            int port = 80;
-
-            while ((line = br.readLine()) != null) {
-                request.append(line).append("\r\n");
-
-                // Extract host and port from the 'Host:' header
-                if (line.toLowerCase().startsWith("host:")) {
-                    String[] parts = line.split(":");
-                    host = parts[1].trim();
-                    if (parts.length > 2) {
-                        port = Integer.parseInt(parts[2].trim());
-                    }
-                }
+            while ((line = reader.readLine()) != null) {
+                byteArrayOutputStream.write(line.getBytes());
+                byteArrayOutputStream.write("\n".getBytes());
             }
-
-            // Construct URL from host and port
-            String url = "http://" + host + ":" + port;
-
-            return new HttpRequest(host, port, request.toString());
         }
+
+        byte[] templateContent = byteArrayOutputStream.toByteArray();
+        // Assume the first line is the host and the second line is the body
+        String host = new String(templateContent).split("\n")[0];
+        int port = 80; // Default HTTP port
+        String body = new String(templateContent).split("\n").length > 1 ? new String(templateContent).split("\n")[1] : null;
+
+        return new HttpRequest(host, port, templateContent, body != null ? body.getBytes() : null);
     }
 
     public String getHost() {
@@ -88,7 +155,11 @@ public class HttpRequest {
         return port;
     }
 
-    public String getRequestString() {
-        return requestString;
+    public byte[] getRequestBytes() {
+        return requestBytes;
+    }
+
+    public byte[] getBodyBytes() {
+        return bodyBytes;
     }
 }

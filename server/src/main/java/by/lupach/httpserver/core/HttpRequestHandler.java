@@ -3,7 +3,6 @@ package by.lupach.httpserver.core;
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -124,45 +123,81 @@ public class HttpRequestHandler implements Runnable {
         }
 
         if (contentType == null || !contentType.startsWith("multipart/form-data")) {
-            byte[] body = inputStream.readNBytes(contentLength);
+            sendResponse(outputStream, 400, "Bad Request", "Content-Type must be multipart/form-data");
+            return;
+        }
 
-            File file = new File(rootDirectory, path+"/requests.txt");
-            try (FileOutputStream fos = new FileOutputStream(file, true)) {
-                fos.write(body);
-                fos.write("\n\n".getBytes()); // Add a newline to separate requests
-            }
+        String boundary = extractBoundary(contentType);
+        if (boundary == null) {
+            sendResponse(outputStream, 400, "Bad Request", "Boundary missing in multipart/form-data");
+            return;
+        }
 
-            sendResponse(outputStream, 200, "OK", "Request body saved to file.");
-        } else {
-            String boundary = extractBoundary(contentType);
-            if (boundary == null) {
-                sendResponse(outputStream, 400, "Bad Request", "Boundary missing in multipart/form-data");
-                return;
-            }
+        byte[] body = inputStream.readNBytes(contentLength);
+        byte[] boundaryBytes = ("--" + boundary).getBytes();
 
-            // Read the body
-            byte[] body = inputStream.readNBytes(contentLength);
+        int pos = 0;
+        while ((pos = findBoundary(body, boundaryBytes, pos)) != -1) {
+            int start = pos + boundaryBytes.length;
+            int end = findBoundary(body, boundaryBytes, start);
 
-            // Extract file details
-            String fileName = extractFileName(body, boundary);
-            byte[] fileData = extractFileData(body, boundary, contentLength);
+            if (end == -1) break;
 
-            if (fileData != null && fileName != null) {
-                File uploadDir = new File(rootDirectory, path);
-                if (!uploadDir.exists()) {
-                    uploadDir.mkdirs();
-                }
+            processPart(body, start, end, path);
+            pos = end;
+        }
 
-                File file = new File(uploadDir, fileName);
-                try (FileOutputStream fos = new FileOutputStream(file)) {
-                    fos.write(fileData);
-                }
+        sendResponse(outputStream, 201, "OK", "Files uploaded successfully.");
+    }
 
-                sendResponse(outputStream, 200, "OK", "File uploaded successfully.");
-            } else {
-                sendResponse(outputStream, 400, "Bad Request", "No file data found in the request.");
+    private void processPart(byte[] body, int start, int end, String path) throws IOException {
+        // Extract headers
+        int headerEnd = findDoubleNewline(body, start, end);
+        if (headerEnd == -1) return;
+
+        String headers = new String(body, start, headerEnd - start);
+        Matcher matcher = Pattern.compile("Content-Disposition: form-data; name=\"[^\"]*\"; filename=\"([^\"]+)\"").matcher(headers);
+        if (!matcher.find()) return;
+
+        String fileName = matcher.group(1);
+        if (fileName.isEmpty()) return;
+
+        File uploadDir = new File(rootDirectory, path);
+        if (!uploadDir.exists()) {
+            uploadDir.mkdirs();
+        }
+
+        File file = new File(uploadDir, fileName);
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            fos.write(body, headerEnd, end - headerEnd);
+        }
+    }
+
+    private int findBoundary(byte[] body, byte[] boundary, int start) {
+        for (int i = start; i <= body.length - boundary.length; i++) {
+            if (isMatch(body, boundary, i)) {
+                return i;
             }
         }
+        return -1;
+    }
+
+    private boolean isMatch(byte[] body, byte[] boundary, int start) {
+        for (int i = 0; i < boundary.length; i++) {
+            if (body[start + i] != boundary[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private int findDoubleNewline(byte[] body, int start, int end) {
+        for (int i = start; i < end - 3; i++) {
+            if (body[i] == '\r' && body[i + 1] == '\n' && body[i + 2] == '\r' && body[i + 3] == '\n') {
+                return i + 4;
+            }
+        }
+        return -1;
     }
 
     private void handleOptions(OutputStream outputStream) throws IOException {
@@ -171,7 +206,7 @@ public class HttpRequestHandler implements Runnable {
 
     private void sendResponse(OutputStream outputStream, int statusCode, String statusMessage, String body) throws IOException {
         byte[] bodyBytes = body.getBytes();
-        sendResponse(outputStream, statusCode, statusMessage, bodyBytes, "multipart/form-data");
+        sendResponse(outputStream, statusCode, statusMessage, bodyBytes, "text/plain");
     }
 
     private void sendResponse(OutputStream outputStream, int statusCode, String statusMessage, byte[] body, String contentType) throws IOException {
@@ -210,27 +245,4 @@ public class HttpRequestHandler implements Runnable {
         return null;
     }
 
-    private String extractFileName(byte[] body, String boundary) {
-        String bodyString = new String(body);
-        // Updated pattern to match any name attribute
-        Pattern pattern = Pattern.compile("Content-Disposition: form-data; name=\"([^\"]+)\"; filename=\"([^\"]+)\"");
-        Matcher matcher = pattern.matcher(bodyString);
-        if (matcher.find()) {
-            return matcher.group(2);  // The filename is captured in group 2
-        }
-        return null;
-    }
-
-
-    private byte[] extractFileData(byte[] body, String boundary, int contentLength) {
-        String boundaryMarker = "--" + boundary;
-        String bodyString = new String(body);
-        int startIdx = bodyString.indexOf(boundaryMarker) + boundaryMarker.length();
-        int contentStartIdx = bodyString.indexOf("\r\n\r\n", startIdx) + 4;
-        int endIdx = bodyString.indexOf("--" + boundary + "--", contentStartIdx);
-        if (startIdx != -1 && endIdx != -1) {
-            return Arrays.copyOfRange(body, contentStartIdx, contentLength);
-        }
-        return null;
-    }
 }

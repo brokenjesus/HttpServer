@@ -6,7 +6,6 @@ import org.apache.commons.cli.*;
 
 import java.io.IOException;
 
-
 public class Main {
     private static CommandLine parseArguments(String[] args) {
         Options options = defineOptions();
@@ -33,9 +32,9 @@ public class Main {
         options.addOption("H", "header", true, "HTTP headers (e.g., 'Key: Value')");
         options.addOption("b", "body", true, "Request body (string)");
         options.addOption("t", "template", true, "Path to a request template file");
+        options.addOption("f", "file", true, "Path to image file for upload");
         return options;
     }
-
 
     public static void main(String[] args) {
         HttpClient client = new HttpClient();
@@ -48,11 +47,12 @@ public class Main {
 
         try {
             String url = null;
-            if (cmd.hasOption("t")) {
-                // Load the request from template, no need for URL here
-                String templatePath = cmd.getOptionValue("template");
-                HttpRequest request = client.buildRequest(null, null, null, null, templatePath);
-                url = request.getHost() + ":" + request.getPort();  // Set URL from template
+            if (cmd.hasOption("f")) {
+                // Image upload
+                String imagePath = cmd.getOptionValue("f");
+                url = client.getRequiredOption(cmd, "url", "URL is required");
+                String method = cmd.getOptionValue("method", "POST");
+                HttpRequest request = HttpRequest.fileUpload(url, imagePath, method);
                 client.sendRequest(request);
             } else {
                 url = client.getRequiredOption(cmd, "url", "URL is required");
@@ -70,5 +70,4 @@ public class Main {
             System.err.println("I/O Error: " + e.getMessage());
         }
     }
-
 }

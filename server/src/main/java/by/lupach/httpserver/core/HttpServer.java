@@ -1,18 +1,18 @@
 package by.lupach.httpserver.core;
 
-import org.apache.commons.cli.*;
-
-import java.io.*;
-import java.net.*;
-import java.nio.file.*;
-import java.util.*;
-import java.util.logging.*;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.Map;
+import java.util.logging.FileHandler;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 public class HttpServer {
+    private static final Logger LOGGER = LoggerSetup.configureLogger(HttpServer.class.getName());
     private final int port;
     private final String rootDirectory;
     private final Map<String, String> defaultHeaders;
-    private static final Logger LOGGER = LoggerSetup.configureLogger(HttpServer.class.getName());
 
 
     public HttpServer(int port, String rootDirectory, Map<String, String> defaultHeaders) {

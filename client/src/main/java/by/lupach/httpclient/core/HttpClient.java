@@ -1,6 +1,5 @@
 package by.lupach.httpclient.core;
 
-import by.lupach.httpclient.core.HttpRequest;
 import org.apache.commons.cli.CommandLine;
 
 import java.io.*;
@@ -26,19 +25,24 @@ public class HttpClient {
 
     public void sendRequest(HttpRequest request) throws IOException {
         try (Socket socket = new Socket(request.getHost(), request.getPort());
-             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
-             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))) {
+             OutputStream outputStream = socket.getOutputStream();
+             InputStream inputStream = socket.getInputStream()) {
 
-            // Отправка запроса
-            System.out.println("Sending HTTP request:\n" + request.getRequestString());
-            writer.write(request.getRequestString());
-            writer.flush();
+            // Send request bytes
+            System.out.println("Sending HTTP request:\n" + new String(request.getRequestBytes()));
+            outputStream.write(request.getRequestBytes());
 
-            // Чтение ответа
+            // If body is present, send it as bytes
+            if (request.getBodyBytes() != null) {
+                outputStream.write(request.getBodyBytes());
+            }
+
+            // Read response as byte array
+            byte[] responseBuffer = new byte[1024];
+            int bytesRead;
             System.out.println("Response:");
-            String line;
-            while ((line = reader.readLine()) != null) {
-                System.out.println(line);
+            while ((bytesRead = inputStream.read(responseBuffer)) != -1) {
+                System.out.write(responseBuffer, 0, bytesRead);
             }
         }
     }
