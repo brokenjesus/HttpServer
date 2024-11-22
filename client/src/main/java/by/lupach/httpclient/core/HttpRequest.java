@@ -2,6 +2,8 @@ package by.lupach.httpclient.core;
 
 import java.io.*;
 import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Objects;
 
 public class HttpRequest {
     private final String host;
@@ -16,7 +18,11 @@ public class HttpRequest {
         this.bodyBytes = bodyBytes;
     }
 
-    public static HttpRequest fromParameters(String url, String method, String headers, String body) throws IOException {
+    public static HttpRequest fromParameters(String url, String method, String headers, String body, String filePath) throws IOException {
+        if (Objects.equals(method, "POST") && filePath !=null) {
+            return fileUpload(url, filePath, method);
+        }
+
         if (url == null || url.isEmpty()) {
             throw new IllegalArgumentException("URL is required");
         }
@@ -126,25 +132,50 @@ public class HttpRequest {
     }
 
     public static HttpRequest fromTemplate(String templatePath) throws IOException {
-        // Read template file (assuming it exists in resources folder)
-        File templateFile = new File(templatePath);
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        byte[] requestBytes;
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(templateFile))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                byteArrayOutputStream.write(line.getBytes());
-                byteArrayOutputStream.write("\n".getBytes());
+        // Read the file content as bytes
+        requestBytes = Files.readAllBytes(Paths.get(templatePath));
+
+        // Now we can extract the host and port as before, but we'll work with the byte array
+        String host = "localhost";
+        int port = 80;
+
+        // We will convert the byte array to a String to parse the headers
+        String requestStr = new String(requestBytes);
+        BufferedReader br = new BufferedReader(new StringReader(requestStr));
+
+        String filePath = null;
+        String directory = null;
+
+        String line;
+        while ((line = br.readLine()) != null) {
+            // Extract host and port from the 'Host:' header
+            if (line.toLowerCase().startsWith("filepath")) {
+                String[] parts = line.split("=");
+                filePath = parts[1].trim();
+            }
+            if (line.toLowerCase().startsWith("post")) {
+                String[] parts = line.split(" ");
+                directory = parts[1].trim();
+            }
+            if (line.toLowerCase().startsWith("host:")) {
+                String[] parts = line.split(":");
+                host = parts[1].trim();
+                if (parts.length > 2) {
+                    port = Integer.parseInt(parts[2].trim());
+                }
             }
         }
 
-        byte[] templateContent = byteArrayOutputStream.toByteArray();
-        // Assume the first line is the host and the second line is the body
-        String host = new String(templateContent).split("\n")[0];
-        int port = 80; // Default HTTP port
-        String body = new String(templateContent).split("\n").length > 1 ? new String(templateContent).split("\n")[1] : null;
+        // Construct URL from host and port
+        String url = "http://" + host + ":" + port + "/" + directory;
 
-        return new HttpRequest(host, port, templateContent, body != null ? body.getBytes() : null);
+        if (filePath != null) {
+            return fileUpload(url, filePath, "POST");
+        }
+
+        return new HttpRequest(host, port, requestBytes, null);
     }
 
     public String getHost() {

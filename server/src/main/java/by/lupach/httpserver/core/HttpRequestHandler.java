@@ -215,6 +215,7 @@ public class HttpRequestHandler implements Runnable {
                 "Content-Length: " + body.length + "\r\n\r\n";
         outputStream.write(headers.getBytes());
         outputStream.write(body);
+        logger.info("Sending response: " + statusCode + " " + statusMessage);
         outputStream.flush(); // Убедитесь, что данные полностью отправлены
     }
 

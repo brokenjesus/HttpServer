@@ -46,24 +46,26 @@ public class Main {
         }
 
         try {
-            String url = null;
-            if (cmd.hasOption("f")) {
-                // Image upload
-                String imagePath = cmd.getOptionValue("f");
-                url = client.getRequiredOption(cmd, "url", "URL is required");
-                String method = cmd.getOptionValue("method", "POST");
-                HttpRequest request = HttpRequest.fileUpload(url, imagePath, method);
+            if (cmd.hasOption("t")){
+                String templatePath = cmd.getOptionValue("template");
+                HttpRequest request = client.buildRequest(null,null,null,null, templatePath, null);
                 client.sendRequest(request);
-            } else {
-                url = client.getRequiredOption(cmd, "url", "URL is required");
+            }else{
+                String url = client.getRequiredOption(cmd, "url", "URL is required");
                 String method = cmd.getOptionValue("method", "GET");
                 String headers = cmd.getOptionValue("header");
                 String body = cmd.getOptionValue("body");
-                String templatePath = cmd.getOptionValue("template");
 
-                HttpRequest request = client.buildRequest(url, method, headers, body, templatePath);
+                HttpRequest request;
+                if (cmd.hasOption("f")) {
+                    String filePath = cmd.getOptionValue("f");
+                    request = client.buildRequest(url, method, headers, body, null, filePath);
+                }else {
+                    request = client.buildRequest(url, method, headers, body, null, null);
+                }
                 client.sendRequest(request);
             }
+
         } catch (IllegalArgumentException e) {
             System.err.println("Error: " + e.getMessage());
         } catch (IOException e) {

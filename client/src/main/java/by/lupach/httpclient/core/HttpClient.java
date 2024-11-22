@@ -15,11 +15,11 @@ public class HttpClient {
         return value;
     }
 
-    public HttpRequest buildRequest(String url, String method, String headers, String body, String templatePath) throws IOException {
+    public HttpRequest buildRequest(String url, String method, String headers, String body, String templatePath, String filePath) throws IOException {
         if (templatePath != null) {
             return HttpRequest.fromTemplate(templatePath);
         } else {
-            return HttpRequest.fromParameters(url, method, headers, body);
+            return HttpRequest.fromParameters(url, method, headers, body, filePath);
         }
     }
 
